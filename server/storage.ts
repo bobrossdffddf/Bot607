@@ -21,6 +21,7 @@ export interface IStorage {
   getBusinessByRole(guildId: string, roleId: string): Promise<Business | undefined>;
   createBusiness(business: InsertBusiness): Promise<Business>;
   updateBusinessStatus(id: number, isOnline: boolean, employeeId: string | null): Promise<Business>;
+  deleteBusinessByName(guildId: string, name: string): Promise<boolean>;
   getAllBusinesses(): Promise<Business[]>;
 }
 
@@ -78,6 +79,13 @@ export class DatabaseStorage implements IStorage {
       .where(eq(businesses.id, id))
       .returning();
     return updated;
+  }
+
+  async deleteBusinessByName(guildId: string, name: string): Promise<boolean> {
+    const result = await db.delete(businesses)
+      .where(and(eq(businesses.guildId, guildId), eq(businesses.name, name)))
+      .returning();
+    return result.length > 0;
   }
 
   async getAllBusinesses(): Promise<Business[]> {

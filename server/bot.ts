@@ -93,7 +93,16 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('business_offline')
-    .setDescription('Mark a business as offline (Requires business role)')
+    .setDescription('Mark a business as offline (Requires business role)'),
+
+  new SlashCommandBuilder()
+    .setName('business_remove')
+    .setDescription('Remove a business (Admin only)')
+    .addStringOption(option =>
+      option.setName('name')
+        .setDescription('The name of the business to remove')
+        .setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ];
 
 async function updateBusinessEmbed(guildId: string) {
@@ -232,6 +241,18 @@ client.on('interactionCreate', async (interaction) => {
     await storage.updateBusinessStatus(userBusiness.id, isOnline, isOnline ? employee.id : null);
     await interaction.reply({ content: `Successfully marked **${userBusiness.name}** as ${isOnline ? 'ONLINE' : 'OFFLINE'}.`, ephemeral: true });
     await updateBusinessEmbed(interaction.guildId);
+  }
+
+  else if (commandName === 'business_remove') {
+    const name = interaction.options.getString('name');
+    const deleted = await storage.deleteBusinessByName(interaction.guildId, name!);
+
+    if (deleted) {
+      await interaction.reply({ content: `Business **${name}** has been removed.`, ephemeral: true });
+      await updateBusinessEmbed(interaction.guildId);
+    } else {
+      await interaction.reply({ content: `No business found with the name **${name}**.`, ephemeral: true });
+    }
   }
 });
 
