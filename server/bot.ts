@@ -62,6 +62,10 @@ const commands = [
         .setDescription('The user who bought the property')
         .setRequired(true))
     .addStringOption(option =>
+      option.setName('name')
+        .setDescription('Name of the property')
+        .setRequired(true))
+    .addStringOption(option =>
       option.setName('location')
         .setDescription('Location of the property')
         .setRequired(true))
@@ -72,6 +76,10 @@ const commands = [
     .addStringOption(option =>
       option.setName('intended_use')
         .setDescription('Intended use of the property')
+        .setRequired(true))
+    .addAttachmentOption(option =>
+      option.setName('photo')
+        .setDescription('Photo of the property')
         .setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -173,9 +181,11 @@ client.on('interactionCreate', async (interaction) => {
 
   else if (commandName === 'property_sell') {
     const user = interaction.options.getUser('user');
+    const propertyName = interaction.options.getString('name');
     const location = interaction.options.getString('location');
     const permit = interaction.options.getString('permit');
     const intendedUse = interaction.options.getString('intended_use');
+    const photo = interaction.options.getAttachment('photo');
 
     const config = await storage.getServerConfig(interaction.guildId);
     if (!config || !config.propertiesChannelId) {
@@ -185,7 +195,8 @@ client.on('interactionCreate', async (interaction) => {
 
     const embed = new EmbedBuilder()
       .setTitle("SOLD PROPERTY")
-      .setDescription(`**Name:**\n**Location:** ${location}\n**Owner:** <@${user!.id}>\n**Permit:** ${permit}\n**Intended Use:** ${intendedUse}`)
+      .setDescription(`**Name:** ${propertyName}\n**Location:** ${location}\n**Owner:** <@${user!.id}>\n**Permit:** ${permit}\n**Intended Use:** ${intendedUse}`)
+      .setThumbnail(photo!.url)
       .setColor(0x00ff00);
 
     try {
