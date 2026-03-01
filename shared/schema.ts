@@ -15,7 +15,7 @@ export const businesses = pgTable("businesses", {
   roleId: text("role_id").notNull(),
   name: text("name").notNull(),
   isOnline: boolean("is_online").default(false).notNull(),
-  employeeId: text("employee_id"), // The ID of the user who is currently online for this business
+  employeeIds: text("employee_ids").array(), // Changed from employeeId to array of strings
 });
 
 export const insertServerConfigSchema = createInsertSchema(serverConfigs);

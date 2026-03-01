@@ -115,43 +115,47 @@ async function updateBusinessEmbed(guildId: string) {
   if (!config || !config.businessesChannelId) return;
 
   const businesses = await storage.getBusinesses(guildId);
-  const isAnyOnline = businesses.some(b => b.isOnline);
+  const online = businesses.filter(b => b.isOnline);
+  const totalEmployees = online.reduce((acc, b) => acc + (b.employeeIds?.length || 0), 0);
   
   const embed = new EmbedBuilder()
-    .setTitle("🏢 Business Status Board")
-    .setColor(isAnyOnline ? 0x2ecc71 : 0xe74c3c)
+    .setTitle("🏢 BUSINESS STATUS DASHBOARD")
+    .setColor(online.length > 0 ? 0x2ecc71 : 0xe74c3c)
+    .setThumbnail(client.user?.displayAvatarURL() || null)
+    .setDescription(
+      `>>> **Welcome to the Live Business Directory.**\n` +
+      `Below is the real-time status of all registered establishments.\n\n` +
+      `**Current Statistics**\n` +
+      `🟢 **Open:** \`${online.length}\` | 🔴 **Closed:** \`${businesses.length - online.length}\` | 👥 **Active Staff:** \`${totalEmployees}\`\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━`
+    )
     .setTimestamp()
     .setFooter({ 
-      text: `Live Status • Total: ${businesses.length} • Use /business_online`,
+      text: "SYSTEM LIVE • REAL-TIME UPDATES",
       iconURL: client.user?.displayAvatarURL()
     });
 
   if (businesses.length === 0) {
-    embed.setDescription("*No businesses registered yet. Use `/business_create` to add one.*");
+    embed.addFields({ name: "⚠️ System Notice", value: "No businesses have been registered in the database yet." });
   } else {
-    // Group by status
-    const online = businesses.filter(b => b.isOnline);
-    const offline = businesses.filter(b => !b.isOnline);
-
-    let description = "";
-    
+    // Group online businesses
     if (online.length > 0) {
-      description += "### 🟢 Open for Business\n";
-      online.forEach(b => {
-        const employeeText = b.employeeId ? `<@${b.employeeId}>` : "Available";
-        description += `**${b.name.toUpperCase()}** — ${employeeText}\n`;
-      });
-      description += "\n";
+      const onlineList = online.map(b => {
+        const staff = b.employeeIds && b.employeeIds.length > 0 
+          ? b.employeeIds.map(id => `<@${id}>`).join(", ")
+          : "System Online";
+        return `✅ **${b.name.toUpperCase()}**\n└ 👥 **Staff:** ${staff}`;
+      }).join("\n\n");
+      
+      embed.addFields({ name: "🟢 OPEN ESTABLISHMENTS", value: onlineList });
     }
 
+    // Group offline businesses
+    const offline = businesses.filter(b => !b.isOnline);
     if (offline.length > 0) {
-      description += "### 🔴 Currently Closed\n";
-      offline.forEach(b => {
-        description += `**${b.name.toUpperCase()}**\n`;
-      });
+      const offlineList = offline.map(b => `❌ **${b.name.toUpperCase()}**`).join("\n");
+      embed.addFields({ name: "🔴 CLOSED ESTABLISHMENTS", value: offlineList });
     }
-
-    embed.setDescription(description);
   }
 
   try {
@@ -323,8 +327,31 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    await storage.updateBusinessStatus(userBusiness.id, isOnline, isOnline ? employee.id : null);
-    await interaction.reply({ content: `Successfully marked **${userBusiness.name}** as ${isOnline ? 'ONLINE' : 'OFFLINE'}.`, ephemeral: true });
+    if (commandName === 'business_online') {
+      await storage.updateBusinessStatus(userBusiness.id, true, employee.id);
+      await interaction.reply({ content: `Successfully marked **${userBusiness.name}** as ONLINE for <@${employee.id}>.`, ephemeral: true });
+    } else {
+      // If it's offline, we check if we're removing a specific employee or just closing the business
+      if (isAdmin && adminTargetBusinessName) {
+        await storage.updateBusinessStatus(userBusiness.id, false, null);
+        await interaction.reply({ content: `Successfully CLOSED **${userBusiness.name}**.`, ephemeral: true });
+      } else {
+        // Use the new helper if available or just update status
+        try {
+          // @ts-ignore - checking if the method exists
+          if (typeof storage.removeEmployeeFromBusiness === 'function') {
+            // @ts-ignore
+            await storage.removeEmployeeFromBusiness(userBusiness.id, interaction.user.id);
+          } else {
+            await storage.updateBusinessStatus(userBusiness.id, false, null);
+          }
+        } catch (e) {
+          await storage.updateBusinessStatus(userBusiness.id, false, null);
+        }
+        await interaction.reply({ content: `You have signed off from **${userBusiness.name}**.`, ephemeral: true });
+      }
+    }
+    
     await updateBusinessEmbed(interaction.guildId);
   }
 

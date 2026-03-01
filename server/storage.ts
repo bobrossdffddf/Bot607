@@ -133,8 +133,32 @@ export class FileStorage implements IStorage {
   async updateBusinessStatus(id: number, isOnline: boolean, employeeId: string | null): Promise<Business> {
     const business = this.businesses.get(id);
     if (!business) throw new Error("Business not found");
+    
     business.isOnline = isOnline;
-    business.employeeId = employeeId;
+    if (isOnline && employeeId) {
+      if (!business.employeeIds) business.employeeIds = [];
+      if (!business.employeeIds.includes(employeeId)) {
+        business.employeeIds.push(employeeId);
+      }
+    } else if (!isOnline) {
+      business.employeeIds = [];
+    }
+    
+    this.saveData();
+    return business;
+  }
+
+  async removeEmployeeFromBusiness(id: number, employeeId: string): Promise<Business> {
+    const business = this.businesses.get(id);
+    if (!business) throw new Error("Business not found");
+    
+    if (business.employeeIds) {
+      business.employeeIds = business.employeeIds.filter(id => id !== employeeId);
+      if (business.employeeIds.length === 0) {
+        business.isOnline = false;
+      }
+    }
+    
     this.saveData();
     return business;
   }
