@@ -96,7 +96,7 @@ const commands = [
     .setName('business_offline')
     .setDescription('Mark a business as offline (Requires business role or Admin)')
     .addStringOption(option =>
-      option.setName('name')
+      option.setName('business')
         .setDescription('The name of the business (Admins only)')
         .setRequired(false)),
 
@@ -182,11 +182,15 @@ client.on('messageCreate', async (message) => {
     } else if (message.content === '?restart git') {
       try {
         await message.reply("Fetching latest changes and restarting...");
-        // This assumes the user has PM2 installed and configured on their Proxmox/Debian environment
-        // In Replit environment, this might behave differently but I'll add the logic as requested
-        const command = 'git pull && pm2 restart all || npm run dev'; 
-        const { stdout } = await execAsync(command);
-        await message.reply(`\`\`\`\n${stdout}\n\`\`\``);
+        const command = 'git pull && (pm2 restart all || npm run dev)'; 
+        exec(command, (error, stdout, stderr) => {
+          const output = `Stdout: ${stdout}\nStderr: ${stderr}`;
+          message.reply(`Update info:\n\`\`\`\n${output.slice(0, 1900)}\n\`\`\``).catch(console.error);
+          
+          if (error) {
+            console.error(`Exec error: ${error}`);
+          }
+        });
       } catch (error: any) {
         await message.reply(`Error: ${error.message}`);
       }
@@ -266,7 +270,7 @@ client.on('interactionCreate', async (interaction) => {
   else if (commandName === 'business_online' || commandName === 'business_offline') {
     const isOnline = commandName === 'business_online';
     const employee = interaction.options.getUser('employee') || interaction.user;
-    const adminTargetBusinessName = interaction.options.getString('name');
+    const adminTargetBusinessName = interaction.options.getString('business');
     
     const member = await interaction.guild!.members.fetch(interaction.user.id);
     const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
@@ -324,7 +328,7 @@ export async function startBot() {
     const rest = new REST({ version: '10' }).setToken(token);
     
     // We get the bot's application ID once logged in, but for registering commands we might need it
-    client.once('ready', async () => {
+    client.once('clientReady', async () => {
       console.log(`Bot logged in as ${client.user?.tag}`);
       try {
         await rest.put(
