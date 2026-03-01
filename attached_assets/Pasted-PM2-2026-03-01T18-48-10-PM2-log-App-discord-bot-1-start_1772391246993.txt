@@ -1,0 +1,49 @@
+PM2        | 2026-03-01T18:48:10: PM2 log: App [discord-bot:1] starting in -fork mode-
+PM2        | 2026-03-01T18:48:10: PM2 log: App [discord-bot:1] online
+PM2        | 2026-03-01T18:48:11: PM2 log: Stopping app:discord-bot id:0
+PM2        | 2026-03-01T18:48:11: PM2 log: Stopping app:discord-bot id:1
+PM2        | 2026-03-01T18:48:11: PM2 log: App [discord-bot:0] exited with code [0] via signal [SIGINT]
+PM2        | 2026-03-01T18:48:11: PM2 log: App [discord-bot:1] exited with code [0] via signal [SIGINT]
+PM2        | 2026-03-01T18:48:11: PM2 log: pid=4049 msg=process killed
+PM2        | 2026-03-01T18:48:11: PM2 log: pid=5113 msg=process killed
+PM2        | 2026-03-01T18:48:16: PM2 log: App [discord-bot:0] starting in -fork mode-
+PM2        | 2026-03-01T18:48:16: PM2 log: App [discord-bot:0] online
+PM2        | 2026-03-01T18:49:20: PM2 log: Stopping app:discord-bot id:0
+PM2        | 2026-03-01T18:49:20: PM2 log: App [discord-bot:0] exited with code [0] via signal [SIGINT]
+PM2        | 2026-03-01T18:49:20: PM2 log: pid=5174 msg=process killed
+PM2        | 2026-03-01T18:49:20: PM2 log: App [discord-bot:0] starting in -fork mode-
+PM2        | 2026-03-01T18:49:20: PM2 log: App [discord-bot:0] online
+
+/root/.pm2/logs/discord-bot-error.log last 15 lines:
+0|discord- |     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+0|discord- |     at listenInCluster (node:net:1965:12)
+0|discord- |     at doListen (node:net:2139:7)
+0|discord- |     at process.processTicksAndRejections (node:internal/process/task_queues:83:21)
+0|discord- | Emitted 'error' event on Server instance at:
+0|discord- |     at emitErrorNT (node:net:1944:8)
+0|discord- |     at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+0|discord- |   code: 'EADDRINUSE',
+0|discord- |   errno: -98,
+0|discord- |   syscall: 'listen',
+0|discord- |   address: '0.0.0.0',
+0|discord- |   port: 5000
+0|discord- | }
+0|discord- | 
+0|discord- | Node.js v20.20.0
+
+/root/.pm2/logs/discord-bot-out.log last 15 lines:
+0|discord- | > rest-express@1.0.0 dev
+0|discord- | > NODE_ENV=development tsx server/index.ts
+0|discord- | 
+0|discord- | 
+0|discord- | > rest-express@1.0.0 dev
+0|discord- | > NODE_ENV=development tsx server/index.ts
+0|discord- | 
+0|discord- | No DISCORD_TOKEN found in environment. The Discord bot will not start.
+0|discord- | 6:48:18 PM [express] serving on port 5000 at 0.0.0.0
+0|discord- | 
+0|discord- | > rest-express@1.0.0 dev
+0|discord- | > NODE_ENV=development tsx server/index.ts
+0|discord- | 
+0|discord- | No DISCORD_TOKEN found in environment. The Discord bot will not start.
+0|discord- | 6:49:22 PM [express] serving on port 5000 at 0.0.0.0
