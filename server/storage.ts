@@ -1,4 +1,5 @@
-import { db } from "./db";
+import fs from "fs";
+import path from "path";
 import {
   serverConfigs,
   businesses,
@@ -7,7 +8,6 @@ import {
   type Business,
   type InsertBusiness
 } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
 
 export interface IStorage {
   // Server Configs
@@ -25,72 +25,113 @@ export interface IStorage {
   getAllBusinesses(): Promise<Business[]>;
 }
 
-export class DatabaseStorage implements IStorage {
-  async getServerConfig(guildId: string): Promise<ServerConfig | undefined> {
-    const [config] = await db.select().from(serverConfigs).where(eq(serverConfigs.guildId, guildId));
-    return config;
+export class FileStorage implements IStorage {
+  private configPath = path.resolve("data", "configs.json");
+  private businessPath = path.resolve("data", "businesses.json");
+  private configs: Map<string, ServerConfig>;
+  private businesses: Map<number, Business>;
+  private currentBusinessId: number;
+
+  constructor() {
+    if (!fs.existsSync("data")) {
+      fs.mkdirSync("data");
+    }
+
+    this.configs = new Map();
+    this.businesses = new Map();
+    this.currentBusinessId = 1;
+
+    this.loadData();
   }
 
-  async upsertServerConfig(config: InsertServerConfig): Promise<ServerConfig> {
-    const [existing] = await db.select().from(serverConfigs).where(eq(serverConfigs.guildId, config.guildId));
-    if (existing) {
-      const [updated] = await db.update(serverConfigs)
-        .set(config)
-        .where(eq(serverConfigs.guildId, config.guildId))
-        .returning();
-      return updated;
-    } else {
-      const [created] = await db.insert(serverConfigs).values(config).returning();
-      return created;
+  private loadData() {
+    if (fs.existsSync(this.configPath)) {
+      const data = JSON.parse(fs.readFileSync(this.configPath, "utf-8"));
+      Object.entries(data).forEach(([key, val]) => this.configs.set(key, val as ServerConfig));
+    }
+    if (fs.existsSync(this.businessPath)) {
+      const data = JSON.parse(fs.readFileSync(this.businessPath, "utf-8"));
+      data.forEach((b: Business) => {
+        this.businesses.set(b.id, b);
+        if (b.id >= this.currentBusinessId) this.currentBusinessId = b.id + 1;
+      });
     }
   }
 
+  private saveData() {
+    fs.writeFileSync(this.configPath, JSON.stringify(Object.fromEntries(this.configs)));
+    fs.writeFileSync(this.businessPath, JSON.stringify(Array.from(this.businesses.values())));
+  }
+
+  async getServerConfig(guildId: string): Promise<ServerConfig | undefined> {
+    return this.configs.get(guildId);
+  }
+
+  async upsertServerConfig(config: InsertServerConfig): Promise<ServerConfig> {
+    const fullConfig: ServerConfig = {
+      ...config,
+      businessesMessageId: config.businessesMessageId ?? null
+    };
+    this.configs.set(config.guildId, fullConfig);
+    this.saveData();
+    return fullConfig;
+  }
+
   async getAllServerConfigs(): Promise<ServerConfig[]> {
-    return await db.select().from(serverConfigs);
+    return Array.from(this.configs.values());
   }
 
   async updateServerConfigEmbedMessage(guildId: string, messageId: string): Promise<ServerConfig> {
-    const [updated] = await db.update(serverConfigs)
-      .set({ businessesMessageId: messageId })
-      .where(eq(serverConfigs.guildId, guildId))
-      .returning();
-    return updated;
+    const config = this.configs.get(guildId);
+    if (!config) throw new Error("Config not found");
+    config.businessesMessageId = messageId;
+    this.saveData();
+    return config;
   }
 
   async getBusinesses(guildId: string): Promise<Business[]> {
-    return await db.select().from(businesses).where(eq(businesses.guildId, guildId));
+    return Array.from(this.businesses.values()).filter(b => b.guildId === guildId);
   }
 
   async getBusinessByRole(guildId: string, roleId: string): Promise<Business | undefined> {
-    const [business] = await db.select()
-      .from(businesses)
-      .where(and(eq(businesses.guildId, guildId), eq(businesses.roleId, roleId)));
-    return business;
+    return Array.from(this.businesses.values()).find(b => b.guildId === guildId && b.roleId === roleId);
   }
 
   async createBusiness(business: InsertBusiness): Promise<Business> {
-    const [created] = await db.insert(businesses).values(business).returning();
-    return created;
+    const id = this.currentBusinessId++;
+    const newBusiness: Business = {
+      ...business,
+      id,
+      isOnline: false,
+      employeeId: null
+    };
+    this.businesses.set(id, newBusiness);
+    this.saveData();
+    return newBusiness;
   }
 
   async updateBusinessStatus(id: number, isOnline: boolean, employeeId: string | null): Promise<Business> {
-    const [updated] = await db.update(businesses)
-      .set({ isOnline, employeeId })
-      .where(eq(businesses.id, id))
-      .returning();
-    return updated;
+    const business = this.businesses.get(id);
+    if (!business) throw new Error("Business not found");
+    business.isOnline = isOnline;
+    business.employeeId = employeeId;
+    this.saveData();
+    return business;
   }
 
   async deleteBusinessByName(guildId: string, name: string): Promise<boolean> {
-    const result = await db.delete(businesses)
-      .where(and(eq(businesses.guildId, guildId), eq(businesses.name, name)))
-      .returning();
-    return result.length > 0;
+    const business = Array.from(this.businesses.values()).find(b => b.guildId === guildId && b.name === name);
+    if (business) {
+      this.businesses.delete(business.id);
+      this.saveData();
+      return true;
+    }
+    return false;
   }
 
   async getAllBusinesses(): Promise<Business[]> {
-    return await db.select().from(businesses);
+    return Array.from(this.businesses.values());
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new FileStorage();
