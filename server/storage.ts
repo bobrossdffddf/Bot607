@@ -46,15 +46,29 @@ export class FileStorage implements IStorage {
 
   private loadData() {
     if (fs.existsSync(this.configPath)) {
-      const data = JSON.parse(fs.readFileSync(this.configPath, "utf-8"));
-      Object.entries(data).forEach(([key, val]) => this.configs.set(key, val as ServerConfig));
+      try {
+        const raw = fs.readFileSync(this.configPath, "utf-8").trim();
+        if (raw) {
+          const data = JSON.parse(raw);
+          Object.entries(data).forEach(([key, val]) => this.configs.set(key, val as ServerConfig));
+        }
+      } catch (e) {
+        console.warn("Could not parse configs.json, starting fresh.", e);
+      }
     }
     if (fs.existsSync(this.businessPath)) {
-      const data = JSON.parse(fs.readFileSync(this.businessPath, "utf-8"));
-      data.forEach((b: Business) => {
-        this.businesses.set(b.id, b);
-        if (b.id >= this.currentBusinessId) this.currentBusinessId = b.id + 1;
-      });
+      try {
+        const raw = fs.readFileSync(this.businessPath, "utf-8").trim();
+        if (raw) {
+          const data = JSON.parse(raw);
+          data.forEach((b: Business) => {
+            this.businesses.set(b.id, b);
+            if (b.id >= this.currentBusinessId) this.currentBusinessId = b.id + 1;
+          });
+        }
+      } catch (e) {
+        console.warn("Could not parse businesses.json, starting fresh.", e);
+      }
     }
   }
 
