@@ -123,9 +123,14 @@ async function updateBusinessEmbed(guildId: string) {
   }
 
   const embed = new EmbedBuilder()
-    .setTitle("Business Status")
-    .setDescription(description || "No businesses registered yet.")
-    .setColor(0x2f3136);
+    .setTitle("🏢 Business Status Board")
+    .setDescription(description || "*No businesses registered yet. Use `/business_create` to add one.*")
+    .setColor(businesses.some(b => b.isOnline) ? 0x2ecc71 : 0x95a5a6)
+    .setTimestamp()
+    .setFooter({ 
+      text: `Last Updated • Total Businesses: ${businesses.length} • Use /business_online to check in`,
+      iconURL: client.user?.displayAvatarURL()
+    });
 
   try {
     const channel = await client.channels.fetch(config.businessesChannelId) as TextChannel;
@@ -279,6 +284,14 @@ export async function startBot() {
       } catch (error) {
         console.error("Failed to register commands:", error);
       }
+    });
+
+    client.on('shardError', error => {
+      console.error('A websocket connection encountered an error:', error);
+    });
+
+    process.on('unhandledRejection', error => {
+      console.error('Unhandled promise rejection:', error);
     });
 
     await client.login(token);
