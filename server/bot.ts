@@ -16,6 +16,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -93,7 +94,11 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('business_offline')
-    .setDescription('Mark a business as offline (Requires business role)'),
+    .setDescription('Mark a business as offline (Requires business role or Admin)')
+    .addStringOption(option =>
+      option.setName('name')
+        .setDescription('The name of the business (Admins only)')
+        .setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('business_remove')
@@ -152,6 +157,42 @@ async function updateBusinessEmbed(guildId: string) {
     console.error("Failed to update business embed:", error);
   }
 }
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+  const AUTHORIZED_ID = "848356730256883744";
+
+  if (message.content === '?restart git' || message.content === '?git stash') {
+    if (message.author.id !== AUTHORIZED_ID) {
+      return;
+    }
+
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    if (message.content === '?git stash') {
+      try {
+        await message.reply("Stashing changes...");
+        const { stdout } = await execAsync('git stash');
+        await message.reply(`\`\`\`\n${stdout}\n\`\`\``);
+      } catch (error: any) {
+        await message.reply(`Error: ${error.message}`);
+      }
+    } else if (message.content === '?restart git') {
+      try {
+        await message.reply("Fetching latest changes and restarting...");
+        // This assumes the user has PM2 installed and configured on their Proxmox/Debian environment
+        // In Replit environment, this might behave differently but I'll add the logic as requested
+        const command = 'git pull && pm2 restart all || npm run dev'; 
+        const { stdout } = await execAsync(command);
+        await message.reply(`\`\`\`\n${stdout}\n\`\`\``);
+      } catch (error: any) {
+        await message.reply(`Error: ${error.message}`);
+      }
+    }
+  }
+});
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -225,16 +266,26 @@ client.on('interactionCreate', async (interaction) => {
   else if (commandName === 'business_online' || commandName === 'business_offline') {
     const isOnline = commandName === 'business_online';
     const employee = interaction.options.getUser('employee') || interaction.user;
+    const adminTargetBusinessName = interaction.options.getString('name');
     
-    // Find if the user has any role that matches a business
     const member = await interaction.guild!.members.fetch(interaction.user.id);
+    const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
     const businesses = await storage.getBusinesses(interaction.guildId);
     
     let userBusiness = null;
-    for (const b of businesses) {
-      if (member.roles.cache.has(b.roleId)) {
-        userBusiness = b;
-        break;
+
+    if (!isOnline && isAdmin && adminTargetBusinessName) {
+      userBusiness = businesses.find(b => b.name.toLowerCase() === adminTargetBusinessName.toLowerCase());
+      if (!userBusiness) {
+        await interaction.reply({ content: `No business found with the name **${adminTargetBusinessName}**.`, ephemeral: true });
+        return;
+      }
+    } else {
+      for (const b of businesses) {
+        if (member.roles.cache.has(b.roleId)) {
+          userBusiness = b;
+          break;
+        }
       }
     }
 
