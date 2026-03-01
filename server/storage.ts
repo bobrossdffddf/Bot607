@@ -47,10 +47,13 @@ export class FileStorage implements IStorage {
   private loadData() {
     if (fs.existsSync(this.configPath)) {
       try {
-        const raw = fs.readFileSync(this.configPath, "utf-8").trim();
-        if (raw) {
-          const data = JSON.parse(raw);
-          Object.entries(data).forEach(([key, val]) => this.configs.set(key, val as ServerConfig));
+        const stats = fs.statSync(this.configPath);
+        if (stats.size > 0) {
+          const raw = fs.readFileSync(this.configPath, "utf-8").trim();
+          if (raw) {
+            const data = JSON.parse(raw);
+            Object.entries(data).forEach(([key, val]) => this.configs.set(key, val as ServerConfig));
+          }
         }
       } catch (e) {
         console.warn("Could not parse configs.json, starting fresh.", e);
@@ -58,13 +61,16 @@ export class FileStorage implements IStorage {
     }
     if (fs.existsSync(this.businessPath)) {
       try {
-        const raw = fs.readFileSync(this.businessPath, "utf-8").trim();
-        if (raw) {
-          const data = JSON.parse(raw);
-          data.forEach((b: Business) => {
-            this.businesses.set(b.id, b);
-            if (b.id >= this.currentBusinessId) this.currentBusinessId = b.id + 1;
-          });
+        const stats = fs.statSync(this.businessPath);
+        if (stats.size > 0) {
+          const raw = fs.readFileSync(this.businessPath, "utf-8").trim();
+          if (raw) {
+            const data = JSON.parse(raw);
+            data.forEach((b: Business) => {
+              this.businesses.set(b.id, b);
+              if (b.id >= this.currentBusinessId) this.currentBusinessId = b.id + 1;
+            });
+          }
         }
       } catch (e) {
         console.warn("Could not parse businesses.json, starting fresh.", e);
