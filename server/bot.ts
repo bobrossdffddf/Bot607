@@ -115,27 +115,44 @@ async function updateBusinessEmbed(guildId: string) {
   if (!config || !config.businessesChannelId) return;
 
   const businesses = await storage.getBusinesses(guildId);
+  const isAnyOnline = businesses.some(b => b.isOnline);
   
-  let description = "### 🟢 / 🔴 | EMPLOYEE\n\n";
-  
-  for (const b of businesses) {
-    if (b.isOnline) {
-      const employeeText = b.employeeId ? `<@${b.employeeId}>` : "ONLINE";
-      description += `### 🟢 ${b.name.toUpperCase()} | ${employeeText}\n`;
-    } else {
-      description += `### 🔴 ${b.name.toUpperCase()} | OFFLINE\n`;
-    }
-  }
-
   const embed = new EmbedBuilder()
     .setTitle("🏢 Business Status Board")
-    .setDescription(description || "*No businesses registered yet. Use `/business_create` to add one.*")
-    .setColor(businesses.some(b => b.isOnline) ? 0x2ecc71 : 0x95a5a6)
+    .setColor(isAnyOnline ? 0x2ecc71 : 0xe74c3c)
     .setTimestamp()
     .setFooter({ 
-      text: `Last Updated • Total Businesses: ${businesses.length} • Use /business_online to check in`,
+      text: `Live Status • Total: ${businesses.length} • Use /business_online`,
       iconURL: client.user?.displayAvatarURL()
     });
+
+  if (businesses.length === 0) {
+    embed.setDescription("*No businesses registered yet. Use `/business_create` to add one.*");
+  } else {
+    // Group by status
+    const online = businesses.filter(b => b.isOnline);
+    const offline = businesses.filter(b => !b.isOnline);
+
+    let description = "";
+    
+    if (online.length > 0) {
+      description += "### 🟢 Open for Business\n";
+      online.forEach(b => {
+        const employeeText = b.employeeId ? `<@${b.employeeId}>` : "Available";
+        description += `**${b.name.toUpperCase()}** — ${employeeText}\n`;
+      });
+      description += "\n";
+    }
+
+    if (offline.length > 0) {
+      description += "### 🔴 Currently Closed\n";
+      offline.forEach(b => {
+        description += `**${b.name.toUpperCase()}**\n`;
+      });
+    }
+
+    embed.setDescription(description);
+  }
 
   try {
     const channel = await client.channels.fetch(config.businessesChannelId) as TextChannel;
@@ -253,10 +270,18 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     const embed = new EmbedBuilder()
-      .setTitle("SOLD PROPERTY")
-      .setDescription(`**Name:** ${propertyName}\n**Location:** ${location}\n**Owner:** <@${user!.id}>\n**Permit:** ${permit}\n**Intended Use:** ${intendedUse}`)
+      .setTitle("🏷️ New Property Sale")
+      .setColor(0x2ecc71)
       .setThumbnail(photo!.url)
-      .setColor(0x00ff00);
+      .addFields(
+        { name: '🏠 Property', value: propertyName!, inline: true },
+        { name: '📍 Location', value: location!, inline: true },
+        { name: '👤 Owner', value: `<@${user!.id}>`, inline: true },
+        { name: '📝 Intended Use', value: intendedUse!, inline: false },
+        { name: '📜 Permit', value: `[View Permit](${permit})`, inline: false }
+      )
+      .setTimestamp()
+      .setFooter({ text: 'Property Registry System' });
 
     try {
       const channel = await client.channels.fetch(config.propertiesChannelId) as TextChannel;
