@@ -1,0 +1,39 @@
+> rest-express@1.0.0 dev
+[dotenv@17.3.1] injecting env (0) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
+Registering slash commands...
+7:45:32 PM [express] serving on port 5000 at 0.0.0.0
+Bot logged in as Texas Civilian Operations#7919
+Failed to register commands: DiscordAPIError[50035]: Invalid Form Body
+6.options[2][APPLICATION_COMMAND_OPTIONS_REQUIRED_INVALID]: Required options must be placed before non-required options
+6.options[3][APPLICATION_COMMAND_OPTIONS_REQUIRED_INVALID]: Required options must be placed before non-required options
+6.options[4][APPLICATION_COMMAND_OPTIONS_REQUIRED_INVALID]: Required options must be placed before non-required options
+6.options[5][APPLICATION_COMMAND_OPTIONS_REQUIRED_INVALID]: Required options must be placed before non-required options
+6.options[6][APPLICATION_COMMAND_OPTIONS_REQUIRED_INVALID]: Required options must be placed before non-required options
+6.options[7][APPLICATION_COMMAND_OPTIONS_REQUIRED_INVALID]: Required options must be placed before non-required options
+    at handleErrors (/home/runner/workspace/node_modules/@discordjs/rest/src/lib/handlers/Shared.ts:148:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async SequentialHandler.runRequest (/home/runner/workspace/node_modules/@discordjs/rest/src/lib/handlers/SequentialHandler.ts:417:20)
+    at async SequentialHandler.queueRequest (/home/runner/workspace/node_modules/@discordjs/rest/src/lib/handlers/SequentialHandler.ts:169:11)
+    at async _REST.request (/home/runner/workspace/node_modules/@discordjs/rest/src/lib/REST.ts:210:20)
+    at async Client.<anonymous> (/home/runner/workspace/server/bot.ts:622:9) {
+  requestBody: {
+    files: undefined,
+    json: [
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object],
+      [Object], [Object]
+    ]
+  },
+  rawError: {
+    message: 'Invalid Form Body',
+    code: 50035,
+    errors: { '6': [Object] }
+  },
+  code: 50035,
+  status: 400,
+  method: 'PUT',
+  url: 'https://discord.com/api/v10/applications/1477547295221481623/commands'
+}
+^C
+
