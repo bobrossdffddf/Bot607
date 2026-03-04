@@ -122,13 +122,13 @@ const commands = [
     .setName('property_add')
     .setDescription('Add a new property to the listing (Admin only)')
     .addStringOption(option => option.setName('name').setDescription('Name of the property').setRequired(true))
-    .addStringOption(option => option.setName('owner').setDescription('Owner name (optional)').setRequired(false))
     .addStringOption(option => option.setName('permit').setDescription('Permit link').setRequired(true))
     .addStringOption(option => option.setName('cost').setDescription('Cost of the property').setRequired(true))
     .addStringOption(option => option.setName('intended_use').setDescription('Intended use').setRequired(true))
     .addStringOption(option => option.setName('criminal_allowed').setDescription('Criminal activity allowed Y/N').setRequired(true).addChoices({ name: 'Yes', value: 'Y' }, { name: 'No', value: 'N' }))
     .addStringOption(option => option.setName('bought_on').setDescription('Bought on DATE').setRequired(true))
     .addStringOption(option => option.setName('photo').setDescription('Main photo URL for thumbnail').setRequired(true))
+    .addStringOption(option => option.setName('owner').setDescription('Owner name (optional)').setRequired(false))
     .addStringOption(option => option.setName('gallery').setDescription('Photos for media gallery (comma separated URLs)').setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
