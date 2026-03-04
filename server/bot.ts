@@ -52,6 +52,11 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
+    .setName('refresh_listings')
+    .setDescription('Send or refresh all property listings in the configured channel (Admin only)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
     .setName('business_create')
     .setDescription('Create a new business (Admin only)')
     .addRoleOption(option =>
@@ -127,7 +132,7 @@ const commands = [
     .addStringOption(option => option.setName('intended_use').setDescription('Intended use').setRequired(true))
     .addStringOption(option => option.setName('criminal_allowed').setDescription('Criminal activity allowed Y/N').setRequired(true).addChoices({ name: 'Yes', value: 'Y' }, { name: 'No', value: 'N' }))
     .addStringOption(option => option.setName('bought_on').setDescription('Bought on DATE').setRequired(true))
-    .addStringOption(option => option.setName('photo').setDescription('Main photo URL for thumbnail').setRequired(true))
+    .addAttachmentOption(option => option.setName('photo').setDescription('Main photo of the property').setRequired(true))
     .addStringOption(option => option.setName('owner').setDescription('Owner name (optional)').setRequired(false))
     .addStringOption(option => option.setName('gallery').setDescription('Photos for media gallery (comma separated URLs)').setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
@@ -146,9 +151,6 @@ async function updatePropertyListing(guildId: string) {
   if (!channel) return;
 
   const properties = await storage.getProperties(guildId);
-  
-  // Clean up channel: Delete messages that aren't ours if needed or just send fresh.
-  // Instruction: "The /setup command will send a V2 Embed with Everysingle property added"
   
   for (const prop of properties) {
     const isOwned = !!prop.owner && prop.owner.trim() !== "";
@@ -169,7 +171,7 @@ async function updatePropertyListing(guildId: string) {
       .setFooter({ text: "PROPERTY MANAGEMENT SYSTEM V2" });
 
     if (prop.mediaGallery && prop.mediaGallery.length > 0) {
-      embed.setImage(prop.mediaGallery[0]); // Show first gallery item as main image
+      embed.setImage(prop.mediaGallery[0]); 
     }
 
     const buyButton = new ButtonBuilder()
@@ -223,7 +225,6 @@ async function updateBusinessEmbed(guildId: string) {
   if (businesses.length === 0) {
     embed.addFields({ name: "⚠️ System Notice", value: "No businesses have been registered in the database yet." });
   } else {
-    // Group online businesses
     if (online.length > 0) {
       const onlineList = online.map(b => {
         const staff = b.employeeIds && b.employeeIds.length > 0 
@@ -235,7 +236,6 @@ async function updateBusinessEmbed(guildId: string) {
       embed.addFields({ name: "🟢 OPEN ESTABLISHMENTS", value: onlineList });
     }
 
-    // Group offline businesses
     const offline = businesses.filter(b => !b.isOnline);
     if (offline.length > 0) {
       const offlineList = offline.map(b => `❌ **${b.name.toUpperCase()}**`).join("\n");
@@ -269,9 +269,7 @@ client.on('messageCreate', async (message) => {
   const AUTHORIZED_ID = "848356730256883744";
 
   if (message.content === '?restart git' || message.content === '?git stash') {
-    if (message.author.id !== AUTHORIZED_ID) {
-      return;
-    }
+    if (message.author.id !== AUTHORIZED_ID) return;
 
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
@@ -292,10 +290,7 @@ client.on('messageCreate', async (message) => {
         exec(command, (error, stdout, stderr) => {
           const output = `Stdout: ${stdout}\nStderr: ${stderr}`;
           message.reply(`Update info:\n\`\`\`\n${output.slice(0, 1900)}\n\`\`\``).catch(console.error);
-          
-          if (error) {
-            console.error(`Exec error: ${error}`);
-          }
+          if (error) console.error(`Exec error: ${error}`);
         });
       } catch (error: any) {
         await message.reply(`Error: ${error.message}`);
@@ -314,6 +309,7 @@ client.on('interactionCreate', async (interaction) => {
   const { commandName } = interaction;
 
   if (commandName === 'setup') {
+    await interaction.deferReply({ ephemeral: true });
     const propertiesChannel = interaction.options.getChannel('properties');
     const businessesChannel = interaction.options.getChannel('businesses');
 
@@ -324,13 +320,18 @@ client.on('interactionCreate', async (interaction) => {
       businessesMessageId: null,
     });
 
-    await interaction.reply({ content: `Setup complete! Properties will be logged in <#${propertiesChannel!.id}> and the businesses status embed will be in <#${businessesChannel!.id}>.`, ephemeral: true });
-    
-    // Create the initial embed
+    await interaction.editReply({ content: `Setup complete! Run \`/refresh_listings\` to post property embeds.` });
     await updateBusinessEmbed(interaction.guildId);
   } 
   
+  else if (commandName === 'refresh_listings') {
+    await interaction.deferReply({ ephemeral: true });
+    await updatePropertyListing(interaction.guildId);
+    await interaction.editReply({ content: 'Property listings refreshed.' });
+  }
+
   else if (commandName === 'business_create') {
+    await interaction.deferReply({ ephemeral: true });
     const role = interaction.options.getRole('role');
     const name = interaction.options.getString('name');
 
@@ -340,11 +341,12 @@ client.on('interactionCreate', async (interaction) => {
       name: name!,
     });
 
-    await interaction.reply({ content: `Business **${name}** created and linked to role <@&${role!.id}>!`, ephemeral: true });
+    await interaction.editReply({ content: `Business **${name}** created!` });
     await updateBusinessEmbed(interaction.guildId);
   }
 
   else if (commandName === 'property_sell') {
+    await interaction.deferReply({ ephemeral: true });
     const user = interaction.options.getUser('user');
     const propertyName = interaction.options.getString('name');
     const location = interaction.options.getString('location');
@@ -354,7 +356,7 @@ client.on('interactionCreate', async (interaction) => {
 
     const config = await storage.getServerConfig(interaction.guildId);
     if (!config || !config.propertiesChannelId) {
-      await interaction.reply({ content: 'Server not set up yet. Please ask an admin to run `/setup`.', ephemeral: true });
+      await interaction.editReply({ content: 'Run `/setup` first.' });
       return;
     }
 
@@ -369,19 +371,19 @@ client.on('interactionCreate', async (interaction) => {
         { name: '📝 Intended Use', value: intendedUse!, inline: false },
         { name: '📜 Permit', value: `[View Permit](${permit})`, inline: false }
       )
-      .setTimestamp()
-      .setFooter({ text: 'Property Registry System' });
+      .setTimestamp();
 
     try {
       const channel = await client.channels.fetch(config.propertiesChannelId) as TextChannel;
       await channel.send({ embeds: [embed] });
-      await interaction.reply({ content: 'Property sale recorded successfully.', ephemeral: true });
+      await interaction.editReply({ content: 'Property sale recorded.' });
     } catch (e) {
-      await interaction.reply({ content: 'Failed to send message to the properties channel. Please check my permissions.', ephemeral: true });
+      await interaction.editReply({ content: 'Failed to send message.' });
     }
   }
 
   else if (commandName === 'business_online' || commandName === 'business_offline') {
+    await interaction.deferReply({ ephemeral: true });
     const isOnline = commandName === 'business_online';
     const employee = interaction.options.getUser('employee') || interaction.user;
     const adminTargetBusinessName = interaction.options.getString('business');
@@ -394,10 +396,6 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!isOnline && isAdmin && adminTargetBusinessName) {
       userBusiness = businesses.find(b => b.name.toLowerCase() === adminTargetBusinessName.toLowerCase());
-      if (!userBusiness) {
-        await interaction.reply({ content: `No business found with the name **${adminTargetBusinessName}**.`, ephemeral: true });
-        return;
-      }
     } else {
       for (const b of businesses) {
         if (member.roles.cache.has(b.roleId)) {
@@ -408,51 +406,30 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (!userBusiness) {
-      await interaction.reply({ content: 'You do not have the required role for any registered business.', ephemeral: true });
+      await interaction.editReply({ content: 'No matching business found.' });
       return;
     }
 
-    if (commandName === 'business_online') {
+    if (isOnline) {
       await storage.updateBusinessStatus(userBusiness.id, true, employee.id);
-      await interaction.reply({ content: `Successfully marked **${userBusiness.name}** as ONLINE for <@${employee.id}>.`, ephemeral: true });
+      await interaction.editReply({ content: `**${userBusiness.name}** is ONLINE.` });
     } else {
-      // If it's offline, we check if we're removing a specific employee or just closing the business
-      if (isAdmin && adminTargetBusinessName) {
-        await storage.updateBusinessStatus(userBusiness.id, false, null);
-        await interaction.reply({ content: `Successfully CLOSED **${userBusiness.name}**.`, ephemeral: true });
-      } else {
-        // Use the new helper if available or just update status
-        try {
-          // @ts-ignore - checking if the method exists
-          if (typeof storage.removeEmployeeFromBusiness === 'function') {
-            // @ts-ignore
-            await storage.removeEmployeeFromBusiness(userBusiness.id, interaction.user.id);
-          } else {
-            await storage.updateBusinessStatus(userBusiness.id, false, null);
-          }
-        } catch (e) {
-          await storage.updateBusinessStatus(userBusiness.id, false, null);
-        }
-        await interaction.reply({ content: `You have signed off from **${userBusiness.name}**.`, ephemeral: true });
-      }
+      await storage.updateBusinessStatus(userBusiness.id, false, null);
+      await interaction.editReply({ content: `**${userBusiness.name}** is OFFLINE.` });
     }
-    
     await updateBusinessEmbed(interaction.guildId);
   }
 
   else if (commandName === 'business_remove') {
+    await interaction.deferReply({ ephemeral: true });
     const name = interaction.options.getString('name');
     const deleted = await storage.deleteBusinessByName(interaction.guildId, name!);
-
-    if (deleted) {
-      await interaction.reply({ content: `Business **${name}** has been removed.`, ephemeral: true });
-      await updateBusinessEmbed(interaction.guildId);
-    } else {
-      await interaction.reply({ content: `No business found with the name **${name}**.`, ephemeral: true });
-    }
+    await interaction.editReply({ content: deleted ? `Removed **${name}**.` : 'Not found.' });
+    if (deleted) await updateBusinessEmbed(interaction.guildId);
   }
 
   else if (commandName === 'property_add') {
+    await interaction.deferReply({ ephemeral: true });
     const name = interaction.options.getString('name')!;
     const owner = interaction.options.getString('owner') || null;
     const permit = interaction.options.getString('permit')!;
@@ -460,7 +437,7 @@ client.on('interactionCreate', async (interaction) => {
     const intendedUse = interaction.options.getString('intended_use')!;
     const criminalAllowed = interaction.options.getString('criminal_allowed') === 'Y';
     const boughtOn = interaction.options.getString('bought_on')!;
-    const photo = interaction.options.getString('photo')!;
+    const photoAttachment = interaction.options.getAttachment('photo')!;
     const galleryStr = interaction.options.getString('gallery');
     const gallery = galleryStr ? galleryStr.split(',').map(s => s.trim()) : [];
 
@@ -473,76 +450,72 @@ client.on('interactionCreate', async (interaction) => {
       intendedUse,
       criminalActivity: criminalAllowed,
       boughtOn,
-      thumbnail: photo,
+      thumbnail: photoAttachment.url,
       mediaGallery: gallery
     });
 
-    await interaction.reply({ content: `Property **${name}** added successfully!`, ephemeral: true });
-    await updatePropertyListing(interaction.guildId!);
+    await interaction.editReply({ content: `Property **${name}** added! Run \`/refresh_listings\`.` });
   }
 
   else if (commandName === 'property_edit') {
+    await interaction.deferReply({ ephemeral: true });
     const properties = await storage.getProperties(interaction.guildId!);
     if (properties.length === 0) {
-      await interaction.reply({ content: "No properties found.", ephemeral: true });
+      await interaction.editReply({ content: "No properties found." });
       return;
     }
 
-    const embed = new EmbedBuilder()
-      .setTitle("📋 Property Management")
-      .setDescription("Select a property from the list below to manage its details.")
-      .setColor(0x3498db);
-
     const select = new StringSelectMenuBuilder()
       .setCustomId('select_property_edit')
-      .setPlaceholder('Select a property to manage')
+      .setPlaceholder('Select a property')
       .addOptions(properties.map(p => ({
         label: p.name,
-        description: `Owner: ${p.owner || "Unowned"} | ID: ${p.id}`,
         value: p.id.toString()
       })));
 
     const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    await interaction.editReply({ content: 'Select a property to manage:', components: [row] });
   }
 });
 
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isStringSelectMenu() && interaction.customId === 'select_property_edit') {
+    await interaction.deferUpdate();
     const propertyId = parseInt(interaction.values[0]);
     const property = await storage.getProperty(propertyId);
     if (!property) return;
 
-    const embed = new EmbedBuilder()
-      .setTitle(`Manage: ${property.name}`)
-      .setDescription(`Select an action for **${property.name}**`)
-      .setColor(0x3498db);
-
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`prop_delete_${propertyId}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(`prop_owner_${propertyId}`).setLabel('👤 Change Owner').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`prop_edit_form_${propertyId}`).setLabel('📝 Edit Details').setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId(`prop_delete_${propertyId}`).setLabel('Delete').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`prop_owner_${propertyId}`).setLabel('Owner').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`prop_edit_form_${propertyId}`).setLabel('Edit').setStyle(ButtonStyle.Secondary)
     );
 
-    await interaction.update({ embeds: [embed], components: [row] });
+    await interaction.editReply({ content: `Managing: **${property.name}**`, components: [row] });
   }
 
   if (interaction.isButton()) {
-    const [action, type, idStr] = interaction.customId.split('_');
+    const customId = interaction.customId;
+    if (customId.startsWith('owned_status_')) return;
+
+    const parts = customId.split('_');
+    const action = parts[1];
+    const type = parts[2];
+    const idStr = parts[parts.length - 1];
     const propId = parseInt(idStr);
 
     if (action === 'delete') {
+      await interaction.deferUpdate();
       await storage.deleteProperty(propId);
-      await interaction.update({ content: '✅ Property deleted successfully.', embeds: [], components: [] });
+      await interaction.editReply({ content: 'Property deleted.', components: [] });
       await updatePropertyListing(interaction.guildId!);
     }
 
     if (action === 'owner') {
-      const modal = new ModalBuilder().setCustomId(`modal_owner_${propId}`).setTitle('Change Property Owner');
+      const modal = new ModalBuilder().setCustomId(`modal_owner_${propId}`).setTitle('Change Owner');
       const input = new TextInputBuilder()
         .setCustomId('new_owner')
-        .setLabel('New Owner Name (leave blank for unowned)')
-        .setPlaceholder('Enter name or leave empty')
+        .setLabel('New Owner Name')
         .setStyle(TextInputStyle.Short)
         .setRequired(false);
       modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
@@ -553,26 +526,20 @@ client.on('interactionCreate', async (interaction) => {
       const prop = await storage.getProperty(propId);
       if (!prop) return;
 
-      const modal = new ModalBuilder().setCustomId(`modal_edit_${propId}`).setTitle('Edit Property Details');
-      
-      const nameInput = new TextInputBuilder().setCustomId('name').setLabel('Property Name').setStyle(TextInputStyle.Short).setValue(prop.name);
-      const ownerInput = new TextInputBuilder().setCustomId('owner').setLabel('Owner').setStyle(TextInputStyle.Short).setValue(prop.owner || '').setRequired(false);
-      const permitInput = new TextInputBuilder().setCustomId('permit').setLabel('Permit Link').setStyle(TextInputStyle.Short).setValue(prop.permit);
-      const costInput = new TextInputBuilder().setCustomId('cost').setLabel('Cost').setStyle(TextInputStyle.Short).setValue(prop.cost);
-      const useInput = new TextInputBuilder().setCustomId('intended_use').setLabel('Intended Use').setStyle(TextInputStyle.Short).setValue(prop.intendedUse);
-
+      const modal = new ModalBuilder().setCustomId(`modal_edit_${propId}`).setTitle('Edit Details');
       modal.addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(ownerInput),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(permitInput),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(costInput),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(useInput)
+        new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId('name').setLabel('Name').setStyle(TextInputStyle.Short).setValue(prop.name)),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId('owner').setLabel('Owner').setStyle(TextInputStyle.Short).setValue(prop.owner || '').setRequired(false)),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId('permit').setLabel('Permit').setStyle(TextInputStyle.Short).setValue(prop.permit)),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId('cost').setLabel('Cost').setStyle(TextInputStyle.Short).setValue(prop.cost)),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId('intended_use').setLabel('Use').setStyle(TextInputStyle.Short).setValue(prop.intendedUse))
       );
       await interaction.showModal(modal);
     }
   }
 
   if (interaction.isModalSubmit()) {
+    await interaction.deferUpdate();
     const parts = interaction.customId.split('_');
     const action = parts[1];
     const propId = parseInt(parts[2]);
@@ -580,25 +547,19 @@ client.on('interactionCreate', async (interaction) => {
     if (action === 'owner') {
       const newOwner = interaction.fields.getTextInputValue('new_owner');
       await storage.updateProperty(propId, { owner: newOwner || null });
-      await interaction.reply({ content: '✅ Property owner updated.', ephemeral: true });
+      await interaction.editReply({ content: 'Owner updated.', components: [] });
       await updatePropertyListing(interaction.guildId!);
     }
 
     if (action === 'edit') {
-      const name = interaction.fields.getTextInputValue('name');
-      const owner = interaction.fields.getTextInputValue('owner') || null;
-      const permit = interaction.fields.getTextInputValue('permit');
-      const cost = interaction.fields.getTextInputValue('cost');
-      const use = interaction.fields.getTextInputValue('intended_use');
-
       await storage.updateProperty(propId, {
-        name,
-        owner,
-        permit,
-        cost,
-        intendedUse: use
+        name: interaction.fields.getTextInputValue('name'),
+        owner: interaction.fields.getTextInputValue('owner') || null,
+        permit: interaction.fields.getTextInputValue('permit'),
+        cost: interaction.fields.getTextInputValue('cost'),
+        intendedUse: interaction.fields.getTextInputValue('intended_use')
       });
-      await interaction.reply({ content: '✅ Property details updated.', ephemeral: true });
+      await interaction.editReply({ content: 'Details updated.', components: [] });
       await updatePropertyListing(interaction.guildId!);
     }
   }
@@ -606,39 +567,14 @@ client.on('interactionCreate', async (interaction) => {
 
 export async function startBot() {
   const token = process.env.DISCORD_TOKEN;
-  if (!token) {
-    console.log("No DISCORD_TOKEN found in environment. The Discord bot will not start.");
-    return;
-  }
+  if (!token) return;
 
   try {
-    console.log("Registering slash commands...");
     const rest = new REST({ version: '10' }).setToken(token);
-    
-    // We get the bot's application ID once logged in, but for registering commands we might need it
-    client.once('clientReady', async () => {
-      console.log(`Bot logged in as ${client.user?.tag}`);
-      try {
-        await rest.put(
-          Routes.applicationCommands(client.user!.id),
-          { body: commands.map(c => c.toJSON()) }
-        );
-        console.log('Successfully reloaded application (/) commands.');
-      } catch (error) {
-        console.error("Failed to register commands:", error);
-      }
-    });
-
-    client.on('shardError', error => {
-      console.error('A websocket connection encountered an error:', error);
-    });
-
-    process.on('unhandledRejection', error => {
-      console.error('Unhandled promise rejection:', error);
-    });
-
+    await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID || ''), { body: commands.map(c => c.toJSON()) });
     await client.login(token);
+    console.log(`Bot logged in as ${client.user?.tag}`);
   } catch (error) {
-    console.error("Failed to start Discord bot:", error);
+    console.error("Bot failed:", error);
   }
 }
