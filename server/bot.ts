@@ -43,7 +43,7 @@ const commands = [
     .setDescription('Set up the channels for properties and businesses')
     .addChannelOption(option =>
       option.setName('properties')
-        .setDescription('The channel for property sales')
+        .setDescription('The channel for property listings')
         .setRequired(true))
     .addChannelOption(option =>
       option.setName('businesses')
@@ -147,51 +147,48 @@ async function updatePropertyListing(guildId: string) {
 
   const properties = await storage.getProperties(guildId);
   
-  // Clear old messages (simple approach for now: send new ones)
-  // In a real app we might want to track message IDs
+  // Clean up channel: Delete messages that aren't ours if needed or just send fresh.
+  // Instruction: "The /setup command will send a V2 Embed with Everysingle property added"
   
   for (const prop of properties) {
     const isOwned = !!prop.owner && prop.owner.trim() !== "";
+    
     const embed = new EmbedBuilder()
-      .setTitle(`🏠 ${prop.name}`)
+      .setTitle(`🏠 ${prop.name.toUpperCase()}`)
       .setThumbnail(prop.thumbnail)
       .setColor(isOwned ? 0x95a5a6 : 0x2ecc71)
       .addFields(
-        { name: '👤 Owner', value: isOwned ? prop.owner! : "Unowned", inline: true },
-        { name: '💰 Cost', value: prop.cost, inline: true },
-        { name: '📜 Permit', value: `[View Permit](${prop.permit})`, inline: true },
-        { name: '📝 Intended Use', value: prop.intendedUse, inline: true },
-        { name: '⚖️ Criminal Activity', value: prop.criminalActivity ? "Allowed" : "Not Allowed", inline: true },
-        { name: '📅 Bought On', value: prop.boughtOn, inline: true }
-      );
+        { name: '👤 OWNER', value: isOwned ? `**${prop.owner}**` : "🟢 *Available for Purchase*", inline: true },
+        { name: '💰 COST', value: `\`${prop.cost}\``, inline: true },
+        { name: '📝 INTENDED USE', value: prop.intendedUse, inline: true },
+        { name: '⚖️ CRIMINAL ACTIVITY', value: prop.criminalActivity ? "✅ Allowed" : "❌ Prohibited", inline: true },
+        { name: '📅 BOUGHT ON', value: prop.boughtOn, inline: true },
+        { name: '📜 PERMIT', value: `[Click to View](${prop.permit})`, inline: true }
+      )
+      .setTimestamp()
+      .setFooter({ text: "PROPERTY MANAGEMENT SYSTEM V2" });
 
     if (prop.mediaGallery && prop.mediaGallery.length > 0) {
-      embed.setFooter({ text: `Gallery: ${prop.mediaGallery.length} photos` });
+      embed.setImage(prop.mediaGallery[0]); // Show first gallery item as main image
     }
 
     const buyButton = new ButtonBuilder()
-      .setCustomId(`buy_property_redirect`)
       .setLabel('Buy')
       .setStyle(ButtonStyle.Link)
       .setURL('https://discord.com/channels/1475205068058787840');
 
-    if (isOwned) {
-      // Buttons with links cannot be "disabled" in the traditional sense if they are URLs
-      // but we can change the style or remove it. Discord doesn't support disabling link buttons.
-      // We will just not send it or send a dummy grayed out button if owned
-    }
-
     const row = new ActionRowBuilder<ButtonBuilder>();
-    if (!isOwned) {
-      row.addComponents(buyButton);
-    } else {
+    
+    if (isOwned) {
       row.addComponents(
         new ButtonBuilder()
-          .setCustomId(`owned_${prop.id}`)
+          .setCustomId(`owned_status_${prop.id}`)
           .setLabel('Owned')
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(true)
       );
+    } else {
+      row.addComponents(buyButton);
     }
 
     await channel.send({ embeds: [embed], components: [row] });
@@ -491,17 +488,22 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
+    const embed = new EmbedBuilder()
+      .setTitle("📋 Property Management")
+      .setDescription("Select a property from the list below to manage its details.")
+      .setColor(0x3498db);
+
     const select = new StringSelectMenuBuilder()
       .setCustomId('select_property_edit')
       .setPlaceholder('Select a property to manage')
       .addOptions(properties.map(p => ({
         label: p.name,
-        description: `Owner: ${p.owner || "Unowned"}`,
+        description: `Owner: ${p.owner || "Unowned"} | ID: ${p.id}`,
         value: p.id.toString()
       })));
 
     const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-    await interaction.reply({ content: 'Select a property to manage:', components: [row], ephemeral: true });
+    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
   }
 });
 
@@ -529,72 +531,74 @@ client.on('interactionCreate', async (interaction) => {
     const [action, type, idStr] = interaction.customId.split('_');
     const propId = parseInt(idStr);
 
-    if (interaction.customId.startsWith('prop_delete_')) {
+    if (action === 'delete') {
       await storage.deleteProperty(propId);
-      await interaction.update({ content: 'Property deleted.', embeds: [], components: [] });
+      await interaction.update({ content: '✅ Property deleted successfully.', embeds: [], components: [] });
       await updatePropertyListing(interaction.guildId!);
     }
 
-    if (interaction.customId.startsWith('prop_owner_')) {
-      const modal = new ModalBuilder().setCustomId(`modal_owner_${propId}`).setTitle('Change Owner');
+    if (action === 'owner') {
+      const modal = new ModalBuilder().setCustomId(`modal_owner_${propId}`).setTitle('Change Property Owner');
       const input = new TextInputBuilder()
         .setCustomId('new_owner')
         .setLabel('New Owner Name (leave blank for unowned)')
+        .setPlaceholder('Enter name or leave empty')
         .setStyle(TextInputStyle.Short)
         .setRequired(false);
       modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
       await interaction.showModal(modal);
     }
 
-    if (interaction.customId.startsWith('prop_edit_form_')) {
+    if (action === 'edit' && type === 'form') {
       const prop = await storage.getProperty(propId);
       if (!prop) return;
 
       const modal = new ModalBuilder().setCustomId(`modal_edit_${propId}`).setTitle('Edit Property Details');
       
-      const nameInput = new TextInputBuilder().setCustomId('name').setLabel('Name').setStyle(TextInputStyle.Short).setValue(prop.name);
-      const permitInput = new TextInputBuilder().setCustomId('permit').setLabel('Permit').setStyle(TextInputStyle.Short).setValue(prop.permit);
+      const nameInput = new TextInputBuilder().setCustomId('name').setLabel('Property Name').setStyle(TextInputStyle.Short).setValue(prop.name);
+      const ownerInput = new TextInputBuilder().setCustomId('owner').setLabel('Owner').setStyle(TextInputStyle.Short).setValue(prop.owner || '').setRequired(false);
+      const permitInput = new TextInputBuilder().setCustomId('permit').setLabel('Permit Link').setStyle(TextInputStyle.Short).setValue(prop.permit);
       const costInput = new TextInputBuilder().setCustomId('cost').setLabel('Cost').setStyle(TextInputStyle.Short).setValue(prop.cost);
       const useInput = new TextInputBuilder().setCustomId('intended_use').setLabel('Intended Use').setStyle(TextInputStyle.Short).setValue(prop.intendedUse);
-      const criminalInput = new TextInputBuilder().setCustomId('criminal').setLabel('Criminal Allowed (Y/N)').setStyle(TextInputStyle.Short).setValue(prop.criminalActivity ? 'Y' : 'N');
 
       modal.addComponents(
         new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(ownerInput),
         new ActionRowBuilder<TextInputBuilder>().addComponents(permitInput),
         new ActionRowBuilder<TextInputBuilder>().addComponents(costInput),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(useInput),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(criminalInput)
+        new ActionRowBuilder<TextInputBuilder>().addComponents(useInput)
       );
       await interaction.showModal(modal);
     }
   }
 
   if (interaction.isModalSubmit()) {
-    const [_, action, idStr] = interaction.customId.split('_');
-    const propId = parseInt(idStr);
+    const parts = interaction.customId.split('_');
+    const action = parts[1];
+    const propId = parseInt(parts[2]);
 
     if (action === 'owner') {
       const newOwner = interaction.fields.getTextInputValue('new_owner');
       await storage.updateProperty(propId, { owner: newOwner || null });
-      await interaction.reply({ content: 'Owner updated.', ephemeral: true });
+      await interaction.reply({ content: '✅ Property owner updated.', ephemeral: true });
       await updatePropertyListing(interaction.guildId!);
     }
 
     if (action === 'edit') {
       const name = interaction.fields.getTextInputValue('name');
+      const owner = interaction.fields.getTextInputValue('owner') || null;
       const permit = interaction.fields.getTextInputValue('permit');
       const cost = interaction.fields.getTextInputValue('cost');
       const use = interaction.fields.getTextInputValue('intended_use');
-      const criminal = interaction.fields.getTextInputValue('criminal').toUpperCase() === 'Y';
 
       await storage.updateProperty(propId, {
         name,
+        owner,
         permit,
         cost,
-        intendedUse: use,
-        criminalActivity: criminal
+        intendedUse: use
       });
-      await interaction.reply({ content: 'Property details updated.', ephemeral: true });
+      await interaction.reply({ content: '✅ Property details updated.', ephemeral: true });
       await updatePropertyListing(interaction.guildId!);
     }
   }
