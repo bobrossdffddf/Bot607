@@ -3,10 +3,13 @@ import path from "path";
 import {
   serverConfigs,
   businesses,
+  properties,
   type ServerConfig,
   type InsertServerConfig,
   type Business,
-  type InsertBusiness
+  type InsertBusiness,
+  type Property,
+  type InsertProperty
 } from "@shared/schema";
 
 export interface IStorage {
@@ -23,14 +26,24 @@ export interface IStorage {
   updateBusinessStatus(id: number, isOnline: boolean, employeeId: string | null): Promise<Business>;
   deleteBusinessByName(guildId: string, name: string): Promise<boolean>;
   getAllBusinesses(): Promise<Business[]>;
+
+  // Properties
+  getProperties(guildId: string): Promise<Property[]>;
+  getProperty(id: number): Promise<Property | undefined>;
+  createProperty(property: InsertProperty): Promise<Property>;
+  updateProperty(id: number, updates: Partial<InsertProperty>): Promise<Property>;
+  deleteProperty(id: number): Promise<boolean>;
 }
 
 export class FileStorage implements IStorage {
   private configPath = path.resolve("data", "configs.json");
   private businessPath = path.resolve("data", "businesses.json");
+  private propertyPath = path.resolve("data", "properties.json");
   private configs: Map<string, ServerConfig>;
   private businesses: Map<number, Business>;
+  private properties: Map<number, Property>;
   private currentBusinessId: number;
+  private currentPropertyId: number;
 
   constructor() {
     if (!fs.existsSync("data")) {
@@ -39,7 +52,9 @@ export class FileStorage implements IStorage {
 
     this.configs = new Map();
     this.businesses = new Map();
+    this.properties = new Map();
     this.currentBusinessId = 1;
+    this.currentPropertyId = 1;
 
     this.loadData();
   }
@@ -76,11 +91,29 @@ export class FileStorage implements IStorage {
         console.warn("Could not parse businesses.json, starting fresh.", e);
       }
     }
+    if (fs.existsSync(this.propertyPath)) {
+      try {
+        const stats = fs.statSync(this.propertyPath);
+        if (stats.size > 0) {
+          const raw = fs.readFileSync(this.propertyPath, "utf-8").trim();
+          if (raw) {
+            const data = JSON.parse(raw);
+            data.forEach((p: Property) => {
+              this.properties.set(p.id, p);
+              if (p.id >= this.currentPropertyId) this.currentPropertyId = p.id + 1;
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Could not parse properties.json, starting fresh.", e);
+      }
+    }
   }
 
   private saveData() {
     fs.writeFileSync(this.configPath, JSON.stringify(Object.fromEntries(this.configs)));
     fs.writeFileSync(this.businessPath, JSON.stringify(Array.from(this.businesses.values())));
+    fs.writeFileSync(this.propertyPath, JSON.stringify(Array.from(this.properties.values())));
   }
 
   async getServerConfig(guildId: string): Promise<ServerConfig | undefined> {
@@ -175,6 +208,38 @@ export class FileStorage implements IStorage {
 
   async getAllBusinesses(): Promise<Business[]> {
     return Array.from(this.businesses.values());
+  }
+
+  // Properties
+  async getProperties(guildId: string): Promise<Property[]> {
+    return Array.from(this.properties.values()).filter(p => p.guildId === guildId);
+  }
+
+  async getProperty(id: number): Promise<Property | undefined> {
+    return this.properties.get(id);
+  }
+
+  async createProperty(property: InsertProperty): Promise<Property> {
+    const id = this.currentPropertyId++;
+    const newProperty: Property = { ...property, id };
+    this.properties.set(id, newProperty);
+    this.saveData();
+    return newProperty;
+  }
+
+  async updateProperty(id: number, updates: Partial<InsertProperty>): Promise<Property> {
+    const property = this.properties.get(id);
+    if (!property) throw new Error("Property not found");
+    const updated = { ...property, ...updates };
+    this.properties.set(id, updated);
+    this.saveData();
+    return updated;
+  }
+
+  async deleteProperty(id: number): Promise<boolean> {
+    const deleted = this.properties.delete(id);
+    if (deleted) this.saveData();
+    return deleted;
   }
 }
 

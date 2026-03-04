@@ -7,7 +7,16 @@ import {
   ChatInputCommandInteraction,
   EmbedBuilder,
   PermissionFlagsBits,
-  TextChannel
+  TextChannel,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  InteractionResponse,
+  StringSelectMenuBuilder,
+  ComponentType
 } from 'discord.js';
 import { storage } from './storage';
 
@@ -108,7 +117,86 @@ const commands = [
         .setDescription('The name of the business to remove')
         .setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('property_add')
+    .setDescription('Add a new property to the listing (Admin only)')
+    .addStringOption(option => option.setName('name').setDescription('Name of the property').setRequired(true))
+    .addStringOption(option => option.setName('owner').setDescription('Owner name (optional)').setRequired(false))
+    .addStringOption(option => option.setName('permit').setDescription('Permit link').setRequired(true))
+    .addStringOption(option => option.setName('cost').setDescription('Cost of the property').setRequired(true))
+    .addStringOption(option => option.setName('intended_use').setDescription('Intended use').setRequired(true))
+    .addStringOption(option => option.setName('criminal_allowed').setDescription('Criminal activity allowed Y/N').setRequired(true).addChoices({ name: 'Yes', value: 'Y' }, { name: 'No', value: 'N' }))
+    .addStringOption(option => option.setName('bought_on').setDescription('Bought on DATE').setRequired(true))
+    .addStringOption(option => option.setName('photo').setDescription('Main photo URL for thumbnail').setRequired(true))
+    .addStringOption(option => option.setName('gallery').setDescription('Photos for media gallery (comma separated URLs)').setRequired(false))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('property_edit')
+    .setDescription('List and edit properties (Admin only)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ];
+
+async function updatePropertyListing(guildId: string) {
+  const config = await storage.getServerConfig(guildId);
+  if (!config || !config.propertiesChannelId) return;
+
+  const channel = await client.channels.fetch(config.propertiesChannelId) as TextChannel;
+  if (!channel) return;
+
+  const properties = await storage.getProperties(guildId);
+  
+  // Clear old messages (simple approach for now: send new ones)
+  // In a real app we might want to track message IDs
+  
+  for (const prop of properties) {
+    const isOwned = !!prop.owner && prop.owner.trim() !== "";
+    const embed = new EmbedBuilder()
+      .setTitle(`🏠 ${prop.name}`)
+      .setThumbnail(prop.thumbnail)
+      .setColor(isOwned ? 0x95a5a6 : 0x2ecc71)
+      .addFields(
+        { name: '👤 Owner', value: isOwned ? prop.owner! : "Unowned", inline: true },
+        { name: '💰 Cost', value: prop.cost, inline: true },
+        { name: '📜 Permit', value: `[View Permit](${prop.permit})`, inline: true },
+        { name: '📝 Intended Use', value: prop.intendedUse, inline: true },
+        { name: '⚖️ Criminal Activity', value: prop.criminalActivity ? "Allowed" : "Not Allowed", inline: true },
+        { name: '📅 Bought On', value: prop.boughtOn, inline: true }
+      );
+
+    if (prop.mediaGallery && prop.mediaGallery.length > 0) {
+      embed.setFooter({ text: `Gallery: ${prop.mediaGallery.length} photos` });
+    }
+
+    const buyButton = new ButtonBuilder()
+      .setCustomId(`buy_property_redirect`)
+      .setLabel('Buy')
+      .setStyle(ButtonStyle.Link)
+      .setURL('https://discord.com/channels/1475205068058787840');
+
+    if (isOwned) {
+      // Buttons with links cannot be "disabled" in the traditional sense if they are URLs
+      // but we can change the style or remove it. Discord doesn't support disabling link buttons.
+      // We will just not send it or send a dummy grayed out button if owned
+    }
+
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    if (!isOwned) {
+      row.addComponents(buyButton);
+    } else {
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`owned_${prop.id}`)
+          .setLabel('Owned')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true)
+      );
+    }
+
+    await channel.send({ embeds: [embed], components: [row] });
+  }
+}
 
 async function updateBusinessEmbed(guildId: string) {
   const config = await storage.getServerConfig(guildId);
@@ -364,6 +452,150 @@ client.on('interactionCreate', async (interaction) => {
       await updateBusinessEmbed(interaction.guildId);
     } else {
       await interaction.reply({ content: `No business found with the name **${name}**.`, ephemeral: true });
+    }
+  }
+
+  else if (commandName === 'property_add') {
+    const name = interaction.options.getString('name')!;
+    const owner = interaction.options.getString('owner') || null;
+    const permit = interaction.options.getString('permit')!;
+    const cost = interaction.options.getString('cost')!;
+    const intendedUse = interaction.options.getString('intended_use')!;
+    const criminalAllowed = interaction.options.getString('criminal_allowed') === 'Y';
+    const boughtOn = interaction.options.getString('bought_on')!;
+    const photo = interaction.options.getString('photo')!;
+    const galleryStr = interaction.options.getString('gallery');
+    const gallery = galleryStr ? galleryStr.split(',').map(s => s.trim()) : [];
+
+    await storage.createProperty({
+      guildId: interaction.guildId!,
+      name,
+      owner,
+      permit,
+      cost,
+      intendedUse,
+      criminalActivity: criminalAllowed,
+      boughtOn,
+      thumbnail: photo,
+      mediaGallery: gallery
+    });
+
+    await interaction.reply({ content: `Property **${name}** added successfully!`, ephemeral: true });
+    await updatePropertyListing(interaction.guildId!);
+  }
+
+  else if (commandName === 'property_edit') {
+    const properties = await storage.getProperties(interaction.guildId!);
+    if (properties.length === 0) {
+      await interaction.reply({ content: "No properties found.", ephemeral: true });
+      return;
+    }
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('select_property_edit')
+      .setPlaceholder('Select a property to manage')
+      .addOptions(properties.map(p => ({
+        label: p.name,
+        description: `Owner: ${p.owner || "Unowned"}`,
+        value: p.id.toString()
+      })));
+
+    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+    await interaction.reply({ content: 'Select a property to manage:', components: [row], ephemeral: true });
+  }
+});
+
+client.on('interactionCreate', async (interaction) => {
+  if (interaction.isStringSelectMenu() && interaction.customId === 'select_property_edit') {
+    const propertyId = parseInt(interaction.values[0]);
+    const property = await storage.getProperty(propertyId);
+    if (!property) return;
+
+    const embed = new EmbedBuilder()
+      .setTitle(`Manage: ${property.name}`)
+      .setDescription(`Select an action for **${property.name}**`)
+      .setColor(0x3498db);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`prop_delete_${propertyId}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`prop_owner_${propertyId}`).setLabel('👤 Change Owner').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`prop_edit_form_${propertyId}`).setLabel('📝 Edit Details').setStyle(ButtonStyle.Secondary)
+    );
+
+    await interaction.update({ embeds: [embed], components: [row] });
+  }
+
+  if (interaction.isButton()) {
+    const [action, type, idStr] = interaction.customId.split('_');
+    const propId = parseInt(idStr);
+
+    if (interaction.customId.startsWith('prop_delete_')) {
+      await storage.deleteProperty(propId);
+      await interaction.update({ content: 'Property deleted.', embeds: [], components: [] });
+      await updatePropertyListing(interaction.guildId!);
+    }
+
+    if (interaction.customId.startsWith('prop_owner_')) {
+      const modal = new ModalBuilder().setCustomId(`modal_owner_${propId}`).setTitle('Change Owner');
+      const input = new TextInputBuilder()
+        .setCustomId('new_owner')
+        .setLabel('New Owner Name (leave blank for unowned)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
+      modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+      await interaction.showModal(modal);
+    }
+
+    if (interaction.customId.startsWith('prop_edit_form_')) {
+      const prop = await storage.getProperty(propId);
+      if (!prop) return;
+
+      const modal = new ModalBuilder().setCustomId(`modal_edit_${propId}`).setTitle('Edit Property Details');
+      
+      const nameInput = new TextInputBuilder().setCustomId('name').setLabel('Name').setStyle(TextInputStyle.Short).setValue(prop.name);
+      const permitInput = new TextInputBuilder().setCustomId('permit').setLabel('Permit').setStyle(TextInputStyle.Short).setValue(prop.permit);
+      const costInput = new TextInputBuilder().setCustomId('cost').setLabel('Cost').setStyle(TextInputStyle.Short).setValue(prop.cost);
+      const useInput = new TextInputBuilder().setCustomId('intended_use').setLabel('Intended Use').setStyle(TextInputStyle.Short).setValue(prop.intendedUse);
+      const criminalInput = new TextInputBuilder().setCustomId('criminal').setLabel('Criminal Allowed (Y/N)').setStyle(TextInputStyle.Short).setValue(prop.criminalActivity ? 'Y' : 'N');
+
+      modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(permitInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(costInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(useInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(criminalInput)
+      );
+      await interaction.showModal(modal);
+    }
+  }
+
+  if (interaction.isModalSubmit()) {
+    const [_, action, idStr] = interaction.customId.split('_');
+    const propId = parseInt(idStr);
+
+    if (action === 'owner') {
+      const newOwner = interaction.fields.getTextInputValue('new_owner');
+      await storage.updateProperty(propId, { owner: newOwner || null });
+      await interaction.reply({ content: 'Owner updated.', ephemeral: true });
+      await updatePropertyListing(interaction.guildId!);
+    }
+
+    if (action === 'edit') {
+      const name = interaction.fields.getTextInputValue('name');
+      const permit = interaction.fields.getTextInputValue('permit');
+      const cost = interaction.fields.getTextInputValue('cost');
+      const use = interaction.fields.getTextInputValue('intended_use');
+      const criminal = interaction.fields.getTextInputValue('criminal').toUpperCase() === 'Y';
+
+      await storage.updateProperty(propId, {
+        name,
+        permit,
+        cost,
+        intendedUse: use,
+        criminalActivity: criminal
+      });
+      await interaction.reply({ content: 'Property details updated.', ephemeral: true });
+      await updatePropertyListing(interaction.guildId!);
     }
   }
 });
